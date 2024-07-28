@@ -1,6 +1,5 @@
 # todo:
 ## extract
-- add support for greco and woman
 - there seem to be duplicates in the athletes -> check
 - fct_matches, dim_athlete, dim_tournament
 - dockerize script
