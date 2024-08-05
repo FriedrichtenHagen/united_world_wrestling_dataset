@@ -3,19 +3,37 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.support.ui import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.support import expected_conditions as EC
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.common.exceptions import StaleElementReferenceException
+
 import time
 import pandas as pd
 import logging
+from selenium.webdriver.chrome.options import Options
+
+def safe_find_elements(context, by, value, retries=3, delay=1):
+    for i in range(retries):
+        try:
+            elements = context.find_elements(by, value)
+            return elements
+        except StaleElementReferenceException:
+            if i < retries - 1:
+                time.sleep(delay)
+            else:
+                raise
 
 def scrape_event_urls():
     '''
     First all events and their respective page urls are scraped. This is the basis for scraping each event page.
     '''
+    driver = None
     try:
         # Set up WebDriver
-        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
+
+        chrome_options = Options()
+        chrome_options.add_argument("--disable-search-engine-choice-screen")
+        driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
 
         # Open the webpage
         driver.get("https://uww.org/events")
@@ -26,121 +44,112 @@ def scrape_event_urls():
         try:
             # we will scrape all tournaments (all types, all styles, all ages, all tournaments) for each year
 
+            wait = WebDriverWait(driver, 10)
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '.waf-select-box')))
+
             event_select_boxes = driver.find_elements(By.CSS_SELECTOR, '.waf-select-box')
             year_select_box = event_select_boxes[4]
-            year_select_options = year_select_box.find_elements(By.CSS_SELECTOR, '.list-item')
-                        
-            # create list of athlete entries
+            year_select_options = year_select_box.find_elements(By.CSS_SELECTOR, '.select-list .list-item button')
+                            
+            # click the select box to open drop down menu of years
+            driver.execute_script("arguments[0].click();", year_select_box)  
+            driver.execute_script("arguments[0].classList.add('active');", year_select_box)         
+            
+            # this list saves all event information
             list_of_events = []
 
             # year
-            for year_index, year in enumerate(year_select_options):
+            for year_index in range(len(year_select_options)):
+                print('test')
+                year_select_options = year_select_box.find_elements(By.CSS_SELECTOR, '.select-list .list-item button')
                 driver.execute_script("arguments[0].click();", year_select_options[year_index])
-                year = year_select_options[year_index]
-                logging.debug(f'Currently scraping year: {year}')
+                print('test2')
+                year = year_select_options[year_index].text
+                print(f'Currently scraping year: {year}')
                 
                 monthly_tables = driver.find_elements(By.CSS_SELECTOR, '.table-wrapper')
 
                 # month
                 for month_index, month in enumerate(monthly_tables):
-                    month_and_year = year_select_box.find_element(By.CSS_SELECTOR, '.table-title').text
-                    events_in_month = year_select_box.find_elements(By.CSS_SELECTOR, 'a.table-row.ranking-series')
+                    try:
+                        month_and_year = month.find_element(By.CSS_SELECTOR, 'h3.table-title').text.split()
+                    except:
+                        month_and_year = ['NA', 'NA']
+
+                    # Example usage
+                    try:
+                        # time.sleep(1)
+                        events_in_month = safe_find_elements(month, By.CSS_SELECTOR, 'a.table-row')[1:]
+                        # events_in_month = month.find_elements(By.CSS_SELECTOR, 'a.table-row')[1:]
+                    except StaleElementReferenceException:
+                        events_in_month = safe_find_elements(month, By.CSS_SELECTOR, 'a.table-row')[1:]
 
                     for event_index, event_link in enumerate(events_in_month):
-                        event_url = event_link.href
-                        day = event_link.find_element(By.CSS_SELECTOR, '.date').text
-                        tournament = event_link.find_element(By.CSS_SELECTOR, '.series span.text').text
-                        location = event_link.find_element(By.CSS_SELECTOR, '.place span.text').text
-                        type_of_tournament = event_link.find_element(By.CSS_SELECTOR, '.event span.text').text
-                        age_group = event_link.find_element(By.CSS_SELECTOR, '.category span.text').text
-                        wrestling_style = event_link.find_element(By.CSS_SELECTOR, '.style span.text').text
-                        exta_information_pdf = event_link.find_element(By.CSS_SELECTOR, '.extra span.text').text
+                        event_url = event_link.get_attribute('href')
+                        try:
+                            day_and_month = event_link.find_element(By.CSS_SELECTOR, '.date').text.split('-')
+                            start_day_digit = day_and_month[0]
+                            end_day_digit = day_and_month[1]
+                        except:
+                            # events that are only one day
+                            start_day_digit = day_and_month[0]
+                            end_day_digit = day_and_month[0]
+                        try:
+                            tournament = event_link.find_element(By.CSS_SELECTOR, '.series span.text').text
+                        except:
+                            tournament = 'not available'
+                        try:
+                            location = event_link.find_element(By.CSS_SELECTOR, '.place span.text').text
+                        except:
+                            location = 'not available'
+                        try:
+                            type_of_tournament = event_link.find_element(By.CSS_SELECTOR, '.event span.text').text
+                        except:
+                            type_of_tournament = 'not available'
+                        try:
+                            age_group = event_link.find_element(By.CSS_SELECTOR, '.category span.text').text
+                        except:
+                            age_group = 'not available'
+                        try:
+                            wrestling_style = event_link.find_element(By.CSS_SELECTOR, '.style span.text').text
+                        except:
+                            wrestling_style = 'not available'
+                        try:
+                            extra_div = event_link.find_element(By.CSS_SELECTOR, '.extra')
+                            link_element = extra_div.find_element(By.TAG_NAME, 'a')
+                            extra_information_url = link_element.get_attribute('href')
+                        except:
+                            extra_information_url = 'not available'
 
                         event_information = {
                             'event_url': event_url,
-                            'day': day,
-                            'year': year,
-                            'month': month,
+                            'start_day': start_day_digit,
+                            'end_day': end_day_digit,
+                            'month': month_and_year[0],
+                            'year': month_and_year[1],
                             'tournament': tournament,
-
+                            'location': location,
+                            'type_of_tournament': type_of_tournament,
+                            'age_group': age_group,
+                            'wrestling_style': wrestling_style,
+                            'extra_information_pdf': extra_information_url,
                         }
-                    ## athletes
-                    # top three athletes 
-                    top_three_athletes = driver.find_elements(By.CSS_SELECTOR, '.card-list>a.card-item')
-                    for top_three_athlete in top_three_athletes:
-                        text = top_three_athlete.text
-                        parts = text.split('\n')
-                        ranking = parts[0]
-                        # we don't need the athlete information, since we will extract that from the athlete pages
-                        full_name = parts[1] + parts[2]
-                        full_name = ' '.join(parts[1:-2])
-                        # points = parts[3].split(' ')[0]
-                        # nation = parts[4]
-                        url = top_three_athlete.get_attribute('href')
-
-                        athlete_entry = {
-                            'current_wrestling_style': current_wrestling_style,
-                            'weight_class': current_weight_class,
-                            'ranking': ranking,
-                            'full_name': full_name,
-                            'url': url
-                        }
-                        list_of_athletes.append(athlete_entry)
-                    # all other athletes of the weight class
-                    # we first need to click all 'Load More' buttons so that all athletes are visible
-                    try:
-                        # as long as there is a button to click:
-                        while driver.find_elements(By.CSS_SELECTOR, "button[aria-label='Load More']"):
-                            load_more_button = driver.find_element(By.CSS_SELECTOR, "button[aria-label='Load More']")
-                            driver.execute_script("arguments[0].scrollIntoView(true);", load_more_button)
-                            # Wait until the button with aria-label 'Load More' is present and clickable
-                            load_more_button = WebDriverWait(driver, 10).until(
-                                EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Load More']"))
-                            )
-                            # Click the button
-                            driver.execute_script("arguments[0].click();", load_more_button)
-                            print("Button clicked successfully.")
-                            time.sleep(1)
-                    except Exception as e:
-                        print(f"An error occurred while clicking the button: {e}")
-                        break
-
-                    # extract all the other athletes
-                    all_other_athletes = driver.find_elements(By.CSS_SELECTOR, '.table-body>a.table-row')
-                    for other_athlete in all_other_athletes:
-                        # Find all child elements of the parent
-                        ranking = other_athlete.find_element(By.CSS_SELECTOR, '.table-data.rank>.text').text
-                        # first_name = other_athlete.find_element(By.CSS_SELECTOR, '.full-name>.fname').text
-                        # last_name = other_athlete.find_element(By.CSS_SELECTOR, '.full-name>.lname').text
-                        # Extract the full name
-                        full_name_element = other_athlete.find_element(By.CSS_SELECTOR, 'div.table-info h3.fullname.name')
-                        full_name = full_name_element.text.replace('\n', ' ')
-
-                        # Extract the country
-                        country_element = other_athlete.find_element(By.CSS_SELECTOR, 'div.country span.text')
-                        country = country_element.text
-                        # country = other_athlete.find_element(By.CSS_SELECTOR, '.table-data.player.country>.text').text
-                        url = other_athlete.get_attribute('href')
-                        athlete_entry = {
-                            'current_wrestling_style': current_wrestling_style,
-                            'weight_class': current_weight_class,
-                            'ranking': ranking,
-                            'full_name': full_name,
-                            'url': url
-                        }
-                        list_of_athletes.append(athlete_entry)
-                        logging.info(f'Athlete number {len(list_of_athletes)} scraped successfully.')
-
-
-            df = pd.DataFrame(list_of_athletes)
+                        print(event_information)
+                        print('The above dict is from:')
+                        print(f'event index: {event_index}')
+                        print(f'month index: {month_index}')
+                        print(f'year index: {year_index}')
+                        list_of_events.append(event_information)
+                    
+            df = pd.DataFrame(list_of_events)
 
             # save list to csv
-            df.to_csv('data/athlete_urls.csv', index=False)
+            df.to_csv('data/event.csv', index=False)
             print(f"CSV file has been created with {df.shape[0]} rows")
 
         except Exception as e:
-            print(f"Error: {e}")
-
+            # print(f"Error: {e}")
+            logging.exception('An error occured.')
             # Close the WebDriver
             driver.quit()
     finally:
@@ -148,4 +157,4 @@ def scrape_event_urls():
 
 
 if __name__ == "__main__":
-    scrape_athlete_urls()
+    scrape_event_urls()
