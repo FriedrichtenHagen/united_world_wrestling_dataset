@@ -1,9 +1,13 @@
 myenv/
 data/
 response_examples/
+<<<<<<< HEAD
 # Default .gitignore content added by dbt Cloud# you shouldn't commit these into source control
 # these are the default directory names, adjust/add to fit your needs
 target/
 dbt_packages/
 logs/
 # end dbt Cloud content
+=======
+last_processed.txt
+>>>>>>> f6d783c89ee3f5904ab9d6d3ad96c607aab4fc33
